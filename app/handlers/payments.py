@@ -4,6 +4,8 @@ from aiogram import F, Router
 from aiogram.types import Message, PreCheckoutQuery
 
 from ..models import TransactionType
+from ..services.billing import BillingService
+from ..services.stars import StarsService
 
 router = Router()
 
@@ -14,12 +16,11 @@ async def pre_checkout(pre_checkout_query: PreCheckoutQuery):
 
 
 @router.message(F.successful_payment)
-async def payment_success(message: Message):
-    billing_service = message.bot.get("billing_service")
-    stars_service = message.bot.get("stars_service")
-    if not billing_service or not stars_service:
-        await message.answer("Сервис недоступен")
-        return
+async def payment_success(
+    message: Message,
+    billing_service: BillingService,
+    stars_service: StarsService,
+):
     payload = message.successful_payment.invoice_payload
     pack = stars_service.get_pack(payload)
     if not pack:

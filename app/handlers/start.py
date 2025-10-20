@@ -5,18 +5,17 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
 from ..keyboards.common import main_menu
+from ..services.billing import BillingService
 
 router = Router()
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message):
-    billing_service = message.bot.get("billing_service")
-    if billing_service:
-        await billing_service.get_or_create_user(
-            message.chat.id,
-            message.from_user.username if message.from_user else None,
-        )
+async def cmd_start(message: Message, billing_service: BillingService):
+    await billing_service.get_or_create_user(
+        message.chat.id,
+        message.from_user.username if message.from_user else None,
+    )
     await message.answer(
         "Привет! Это инфраструктура токенов. Используй меню ниже для управления балансом.",
         reply_markup=main_menu(),

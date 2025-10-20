@@ -9,6 +9,9 @@ from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from ..config import get_settings
 from ..keyboards.admin import admin_main_keyboard, manual_request_keyboard
 from ..models import ManualTopUpStatus
+from ..services.admin import AdminService
+from ..services.billing import BillingService
+from ..services.users import UserService
 
 router = Router()
 
@@ -32,7 +35,11 @@ async def admin_panel(message: Message, state: FSMContext):
 
 
 @router.callback_query(F.data.startswith("admin:"))
-async def admin_menu(callback: CallbackQuery, state: FSMContext):
+async def admin_menu(
+    callback: CallbackQuery,
+    state: FSMContext,
+    billing_service: BillingService,
+):
     if not is_admin(callback.message):
         await callback.answer("Нет доступа", show_alert=True)
         return
@@ -41,10 +48,6 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext):
         await state.set_state(AdminStates.waiting_for_user_query)
         await callback.message.answer("Введите username или ID пользователя")
     elif action == "requests":
-        billing_service = callback.message.bot.get("billing_service")
-        if not billing_service:
-            await callback.answer("Сервис недоступен", show_alert=True)
-            return
         pending = await billing_service.list_pending_topups()
         if not pending:
             await callback.message.answer("Нет заявок в ожидании")
@@ -57,10 +60,6 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext):
         await state.set_state(AdminStates.waiting_for_broadcast)
         await callback.message.answer("Отправьте текст рассылки")
     elif action == "export":
-        billing_service = callback.message.bot.get("billing_service")
-        if not billing_service:
-            await callback.answer("Сервис недоступен", show_alert=True)
-            return
         csv_content = await billing_service.export_transactions_csv()
         file = BufferedInputFile(csv_content.encode("utf-8"), filename="transactions.csv")
         await callback.message.answer_document(file, caption="Экспорт операций")
@@ -68,16 +67,15 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext):
 
 
 @router.message(AdminStates.waiting_for_user_query)
-async def process_user_query(message: Message, state: FSMContext):
+async def process_user_query(
+    message: Message,
+    state: FSMContext,
+    billing_service: BillingService,
+    admin_service: AdminService,
+):
     if not is_admin(message):
         return
     query = message.text.strip()
-    billing_service = message.bot.get("billing_service")
-    admin_service = message.bot.get("admin_service")
-    if not admin_service or not billing_service:
-        await message.answer("Сервис недоступен")
-        await state.clear()
-        return
     user = await admin_service.find_user(query)
     if not user:
         await message.answer("Пользователь не найден")
@@ -99,7 +97,11 @@ async def process_user_query(message: Message, state: FSMContext):
 
 
 @router.message(Command("adjust"))
-async def adjust_balance(message: Message):
+async def adjust_balance(
+    message: Message,
+    billing_service: BillingService,
+    user_service: UserService,
+):
     if not is_admin(message):
         return
     parts = message.text.split(maxsplit=3)
@@ -113,11 +115,6 @@ async def adjust_balance(message: Message):
     except ValueError:
         await message.answer("ID и сумма должны быть числами")
         return
-    billing_service = message.bot.get("billing_service")
-    user_service = message.bot.get("user_service")
-    if not billing_service or not user_service:
-        await message.answer("Сервис недоступен")
-        return
     user = await user_service.get_by_id(user_id)
     if not user:
         await message.answer("Пользователь не найден")
@@ -127,15 +124,14 @@ async def adjust_balance(message: Message):
 
 
 @router.callback_query(F.data.startswith("admin_request:"))
-async def process_request(callback: CallbackQuery):
+async def process_request(
+    callback: CallbackQuery,
+    billing_service: BillingService,
+):
     if not is_admin(callback.message):
         await callback.answer("Нет доступа", show_alert=True)
         return
     _, action, req_id_str = callback.data.split(":", 2)
-    billing_service = callback.message.bot.get("billing_service")
-    if not billing_service:
-        await callback.answer("Сервис недоступен", show_alert=True)
-        return
     try:
         req_id = int(req_id_str)
     except ValueError:
@@ -154,13 +150,12 @@ async def process_request(callback: CallbackQuery):
 
 
 @router.message(AdminStates.waiting_for_broadcast)
-async def process_broadcast(message: Message, state: FSMContext):
+async def process_broadcast(
+    message: Message,
+    state: FSMContext,
+    user_service: UserService,
+):
     if not is_admin(message):
-        return
-    user_service = message.bot.get("user_service")
-    if not user_service:
-        await message.answer("Сервис недоступен")
-        await state.clear()
         return
     users = await user_service.list_all()
     count = 0
@@ -175,12 +170,8 @@ async def process_broadcast(message: Message, state: FSMContext):
 
 
 @router.message(Command("health"))
-async def health_check(message: Message):
+async def health_check(message: Message, billing_service: BillingService):
     if not is_admin(message):
-        return
-    billing_service = message.bot.get("billing_service")
-    if not billing_service:
-        await message.answer("Сервис недоступен")
         return
     total = await billing_service.total_turnover()
     await message.answer(f"OK. Оборот операций: {total}")

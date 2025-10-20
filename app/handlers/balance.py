@@ -5,12 +5,9 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from ..config import get_settings
+from ..services.billing import BillingService
 
 router = Router()
-
-
-def _get_billing(message: Message):
-    return message.bot.get("billing_service")
 
 
 @router.message(Command("pricing"))
@@ -27,22 +24,14 @@ async def cmd_pricing(message: Message):
 
 @router.message(F.text.casefold() == "мой баланс")
 @router.message(Command("balance"))
-async def show_balance(message: Message):
-    billing_service = _get_billing(message)
-    if not billing_service:
-        await message.answer("Сервис временно недоступен")
-        return
+async def show_balance(message: Message, billing_service: BillingService):
     user = await billing_service.get_user(message.chat.id)
     balance = user.balance if user else 0
     await message.answer(f"Ваш баланс: {balance} токенов")
 
 
 @router.message(F.text.casefold() == "история операций")
-async def history(message: Message):
-    billing_service = _get_billing(message)
-    if not billing_service:
-        await message.answer("Сервис временно недоступен")
-        return
+async def history(message: Message, billing_service: BillingService):
     user = await billing_service.get_user(message.chat.id)
     if not user:
         await message.answer("Пользователь не найден")

@@ -11,17 +11,10 @@ from ..keyboards.common import (
     stars_keyboard,
 )
 from ..models import ManualTopUpMethod
+from ..services.billing import BillingService
 from ..services.stars import StarsService
 
 router = Router()
-
-
-def _get_billing(message: Message):
-    return message.bot.get("billing_service")
-
-
-def _get_stars(message: Message) -> StarsService:
-    return message.bot.get("stars_service")
 
 
 @router.message(Command("buy"))
@@ -31,21 +24,13 @@ async def buy_menu(message: Message):
 
 
 @router.callback_query(F.data == "buy:stars")
-async def choose_stars(callback: CallbackQuery):
-    stars_service = _get_stars(callback.message)
-    if not stars_service:
-        await callback.answer("Недоступно", show_alert=True)
-        return
+async def choose_stars(callback: CallbackQuery, stars_service: StarsService):
     await callback.message.answer("Выберите пакет:", reply_markup=stars_keyboard(stars_service))
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("stars:pack:"))
-async def send_invoice(callback: CallbackQuery):
-    stars_service = _get_stars(callback.message)
-    if not stars_service:
-        await callback.answer("Недоступно", show_alert=True)
-        return
+async def send_invoice(callback: CallbackQuery, stars_service: StarsService):
     amount_str = callback.data.split(":")[-1]
     pack = stars_service.get_pack(f"pack:{amount_str}")
     if not pack:
@@ -90,7 +75,7 @@ async def manual_direction(callback: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("manual_confirm:"))
-async def manual_confirm(callback: CallbackQuery):
+async def manual_confirm(callback: CallbackQuery, billing_service: BillingService):
     parts = callback.data.split(":")
     if len(parts) != 3:
         await callback.answer("Ошибка", show_alert=True)
@@ -104,10 +89,6 @@ async def manual_confirm(callback: CallbackQuery):
         amount = int(amount_str)
     except ValueError:
         await callback.answer("Ошибка", show_alert=True)
-        return
-    billing_service = _get_billing(callback.message)
-    if not billing_service:
-        await callback.answer("Сервис недоступен", show_alert=True)
         return
     user = await billing_service.get_or_create_user(
         callback.message.chat.id,
