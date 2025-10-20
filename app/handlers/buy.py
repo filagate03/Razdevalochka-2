@@ -9,7 +9,6 @@ from ..keyboards.common import (
     buy_menu_keyboard,
     manual_amount_keyboard,
     manual_topup_keyboard,
-    purchase_complete_keyboard,
     stars_keyboard,
 )
 from ..models import ManualTopUpMethod
@@ -30,14 +29,9 @@ def _edit_or_send(callback: CallbackQuery, text: str, reply_markup=None):
 
 
 @router.message(Command("buy"))
+@router.message(F.text.casefold() == "купить токены")
 async def buy_menu(message: Message):
     await message.answer("🛒 Выберите способ пополнения:", reply_markup=buy_menu_keyboard())
-
-
-@router.callback_query(F.data == "portal:buy")
-async def buy_menu_inline(callback: CallbackQuery):
-    await _edit_or_send(callback, "🛒 Выберите способ пополнения:", buy_menu_keyboard())
-    await callback.answer()
 
 
 @router.callback_query(F.data == "buy:stars")
@@ -68,8 +62,8 @@ async def send_invoice(callback: CallbackQuery, stars_service: StarsService):
     )
     await _edit_or_send(
         callback,
-        f"💸 Счёт на {pack.amount} токенов отправлен. После оплаты вернитесь в меню.",
-        reply_markup=purchase_complete_keyboard(),
+        f"💸 Счёт на {pack.amount} токенов отправлен. Оплатите и дождитесь подтверждения.",
+        reply_markup=buy_menu_keyboard(),
     )
     await callback.answer()
 
@@ -140,7 +134,7 @@ async def manual_confirm(callback: CallbackQuery, billing_service: BillingServic
             f"✅ Заявка создана! Номер #{topup.id}. "
             "Менеджер начислит токены в течение 15 минут."
         ),
-        reply_markup=purchase_complete_keyboard(),
+        reply_markup=buy_menu_keyboard(),
     )
     await callback.answer("Заявка создана")
 

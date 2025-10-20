@@ -4,7 +4,6 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from ..keyboards.common import generation_prompt_keyboard, portal_main_keyboard
 from ..services.integrations import IntegrationService
 
 router = Router()
@@ -22,16 +21,7 @@ async def generate_demo(message: Message, integration_service: IntegrationServic
         )
         return
 
-    status_message = await message.answer(
-        "🎨 Запускаем генерацию…",
-        reply_markup=generation_prompt_keyboard(),
-    )
-    last_update = "🎨 Запускаем генерацию…"
+    status_message = await message.answer("🎨 Запускаем генерацию…")
     async for update in integration_service.simulate_generation(prompt):
-        last_update = update
-        await status_message.edit_text(update, reply_markup=generation_prompt_keyboard())
-    await status_message.edit_text(
-        f"{last_update}\n\nВыберите следующий шаг ниже.",
-        reply_markup=portal_main_keyboard(),
-    )
+        await status_message.edit_text(update)
 

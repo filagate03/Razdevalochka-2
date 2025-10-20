@@ -56,15 +56,13 @@ async def main() -> None:
 
     billing_service = BillingService()
     user_service = UserService()
-    admin_service = AdminService(settings=settings)
+    admin_service = AdminService()
     stars_service = StarsService()
     integration_service = IntegrationService(
         image_token=settings.image_api_token,
         image_webhook=settings.image_webhook_url,
         crypto_bot_token=settings.crypto_bot_token,
     )
-
-    await admin_service.ensure_initial_admins(["hunt_tg", "berkyt"])
 
     services_middleware = ServicesMiddleware(
         billing_service=billing_service,
