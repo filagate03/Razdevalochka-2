@@ -5,16 +5,22 @@ import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 
-from .config import get_settings
-from .db import init_models
-from .handlers import admin as admin_handlers
-from .handlers import balance, buy, payments, start
-from .middlewares.auth import AdminFilterMiddleware, AntiFloodMiddleware
-from .services.admin import AdminService
-from .services.billing import BillingService
-from .services.stars import StarsService
-from .services.users import UserService
-from .utils.logging import configure_logging
+if __package__ in (None, ""):
+    from pathlib import Path
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from app.config import get_settings
+from app.db import init_models
+from app.handlers import admin as admin_handlers
+from app.handlers import balance, buy, payments, start
+from app.middlewares.auth import AdminFilterMiddleware, AntiFloodMiddleware
+from app.services.admin import AdminService
+from app.services.billing import BillingService
+from app.services.stars import StarsService
+from app.services.users import UserService
+from app.utils.logging import configure_logging
 
 
 def setup_dispatcher() -> Dispatcher:
