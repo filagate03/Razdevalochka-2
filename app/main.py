@@ -49,17 +49,17 @@ async def main() -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
 
+    dp = setup_dispatcher()
+
     billing_service = BillingService()
     user_service = UserService()
     admin_service = AdminService()
     stars_service = StarsService()
 
-    bot["billing_service"] = billing_service
-    bot["user_service"] = user_service
-    bot["admin_service"] = admin_service
-    bot["stars_service"] = stars_service
-
-    dp = setup_dispatcher()
+    dp["billing_service"] = billing_service
+    dp["user_service"] = user_service
+    dp["admin_service"] = admin_service
+    dp["stars_service"] = stars_service
 
     await dp.start_polling(bot)
 
