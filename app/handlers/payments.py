@@ -24,11 +24,13 @@ async def payment_success(
     payload = message.successful_payment.invoice_payload
     pack = stars_service.get_pack(payload)
     if not pack:
-        await message.answer("Не удалось определить пакет")
+        await message.answer("⚠️ Не удалось определить пакет")
         return
     user = await billing_service.get_or_create_user(
         message.chat.id,
         message.from_user.username if message.from_user else None,
     )
-    await billing_service.add_transaction(user, pack.amount, TransactionType.STARS, "Telegram Stars")
-    await message.answer(f"Платеж успешен! Начислено {pack.amount} токенов")
+    await billing_service.add_transaction(
+        user, pack.amount, TransactionType.STARS, "Telegram Stars"
+    )
+    await message.answer(f"✅ Платёж успешен! Начислено {pack.amount} токенов")

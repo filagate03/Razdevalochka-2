@@ -5,7 +5,8 @@ from datetime import datetime
 from io import StringIO
 import csv
 
-from sqlalchemy import Select, func, select, update
+from sqlalchemy import Select, cast, func, or_, select, update
+from sqlalchemy.sql.sqltypes import String
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import ManualTopUp, ManualTopUpMethod, ManualTopUpStatus, Transaction, TransactionType, User
@@ -39,6 +40,39 @@ class UserRepository:
     async def list_all(self) -> Iterable[User]:
         result = await self.session.execute(select(User).order_by(User.created_at))
         return result.scalars().all()
+
+    async def list_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        query: str | None = None,
+    ) -> tuple[list[User], bool]:
+        base_stmt = select(User).order_by(User.created_at)
+        if query:
+            normalized = query.strip()
+            if normalized.startswith("@"):
+                normalized = normalized[1:]
+            lowered = normalized.lower()
+            pattern = f"%{lowered}%"
+            conditions = [func.lower(User.username).like(pattern)]
+            if normalized.isdigit():
+                value = int(normalized)
+                conditions.extend([User.chat_id == value, User.id == value])
+            else:
+                like_pattern = f"%{normalized}%"
+                conditions.extend(
+                    [
+                        cast(User.chat_id, String).like(like_pattern),
+                        cast(User.id, String).like(like_pattern),
+                    ]
+                )
+            base_stmt = base_stmt.where(or_(*conditions))
+        stmt = base_stmt.offset(page * page_size).limit(page_size + 1)
+        result = await self.session.execute(stmt)
+        users = list(result.scalars().all())
+        has_more = len(users) > page_size
+        return users[:page_size], has_more
 
     async def adjust_balance(self, user: User, amount: int) -> User:
         user.balance += amount

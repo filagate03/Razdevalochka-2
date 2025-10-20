@@ -22,6 +22,7 @@ def stars_keyboard(stars_service: StarsService) -> InlineKeyboardMarkup:
                 callback_data=f"stars:pack:{pack.amount}",
             )
         ])
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="buy:back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -31,6 +32,7 @@ def manual_topup_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="РФ карты", callback_data="manual:card_ru")],
             [InlineKeyboardButton(text="Международные", callback_data="manual:card_int")],
             [InlineKeyboardButton(text="Криптовалюта", callback_data="manual:crypto")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy:back")],
         ]
     )
 
@@ -52,6 +54,7 @@ def manual_amount_keyboard(method: str) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="3 токена", callback_data=f"manual_confirm:{method}:3")],
             [InlineKeyboardButton(text="5 токенов", callback_data=f"manual_confirm:{method}:5")],
             [InlineKeyboardButton(text="10 токенов", callback_data=f"manual_confirm:{method}:10")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="manual:back")],
         ]
     )
 

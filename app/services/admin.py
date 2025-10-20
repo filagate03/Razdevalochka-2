@@ -31,6 +31,17 @@ class AdminService:
             user_repo = UserRepository(session)
             return await user_repo.list_all()
 
+    async def list_users_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        query: str | None = None,
+    ) -> tuple[list[User], bool]:
+        async with session_scope() as session:
+            user_repo = UserRepository(session)
+            return await user_repo.list_page(page=page, page_size=page_size, query=query)
+
     async def pending_topups(self):
         async with session_scope() as session:
             topup_repo = ManualTopUpRepository(session)

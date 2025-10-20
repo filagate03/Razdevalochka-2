@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     price_sell_rub: int = Field(40, alias="PRICE_SELL_RUB")
     stars_packs: List[int] = Field(default_factory=lambda: [1, 3, 5, 10], alias="STARS_PACKS")
 
+    image_api_token: str | None = Field(default=None, alias="IMAGE_API_TOKEN")
+    image_webhook_url: str | None = Field(default=None, alias="IMAGE_WEBHOOK_URL")
+    crypto_bot_token: str | None = Field(default=None, alias="CRYPTO_BOT_TOKEN")
+
     database_url: str = Field("sqlite+aiosqlite:///./app.db", alias="DATABASE_URL")
 
     @field_validator("admins", mode="before")

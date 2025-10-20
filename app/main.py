@@ -15,10 +15,12 @@ if __package__ in (None, ""):
 from app.config import get_settings
 from app.db import init_models
 from app.handlers import admin as admin_handlers
-from app.handlers import balance, buy, payments, start
+from app.handlers import balance, buy, generation, payments, start
+from app.middlewares import ServicesMiddleware
 from app.middlewares.auth import AdminFilterMiddleware, AntiFloodMiddleware
 from app.services.admin import AdminService
 from app.services.billing import BillingService
+from app.services.integrations import IntegrationService
 from app.services.stars import StarsService
 from app.services.users import UserService
 from app.utils.logging import configure_logging
@@ -33,6 +35,7 @@ def setup_dispatcher() -> Dispatcher:
     dp.include_router(start.router)
     dp.include_router(balance.router)
     dp.include_router(buy.router)
+    dp.include_router(generation.router)
     dp.include_router(payments.router)
     dp.include_router(admin_handlers.router)
 
@@ -55,11 +58,21 @@ async def main() -> None:
     user_service = UserService()
     admin_service = AdminService()
     stars_service = StarsService()
+    integration_service = IntegrationService(
+        image_token=settings.image_api_token,
+        image_webhook=settings.image_webhook_url,
+        crypto_bot_token=settings.crypto_bot_token,
+    )
 
-    dp["billing_service"] = billing_service
-    dp["user_service"] = user_service
-    dp["admin_service"] = admin_service
-    dp["stars_service"] = stars_service
+    services_middleware = ServicesMiddleware(
+        billing_service=billing_service,
+        user_service=user_service,
+        admin_service=admin_service,
+        stars_service=stars_service,
+        integration_service=integration_service,
+    )
+
+    dp.update.middleware(services_middleware)
 
     await dp.start_polling(bot)
 

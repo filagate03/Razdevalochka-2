@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, LabeledPrice, Message
 
@@ -17,15 +18,29 @@ from ..services.stars import StarsService
 router = Router()
 
 
+def _edit_or_send(callback: CallbackQuery, text: str, reply_markup=None):
+    async def inner() -> None:
+        try:
+            await callback.message.edit_text(text, reply_markup=reply_markup)
+        except TelegramBadRequest:
+            await callback.message.answer(text, reply_markup=reply_markup)
+
+    return inner()
+
+
 @router.message(Command("buy"))
 @router.message(F.text.casefold() == "купить токены")
 async def buy_menu(message: Message):
-    await message.answer("Выберите способ пополнения:", reply_markup=buy_menu_keyboard())
+    await message.answer("🛒 Выберите способ пополнения:", reply_markup=buy_menu_keyboard())
 
 
 @router.callback_query(F.data == "buy:stars")
 async def choose_stars(callback: CallbackQuery, stars_service: StarsService):
-    await callback.message.answer("Выберите пакет:", reply_markup=stars_keyboard(stars_service))
+    await _edit_or_send(
+        callback,
+        "✨ Выберите пакет Telegram Stars:",
+        reply_markup=stars_keyboard(stars_service),
+    )
     await callback.answer()
 
 
@@ -45,12 +60,21 @@ async def send_invoice(callback: CallbackQuery, stars_service: StarsService):
         currency=pack.currency,
         prices=prices,
     )
+    await _edit_or_send(
+        callback,
+        f"💸 Счёт на {pack.amount} токенов отправлен. Оплатите и дождитесь подтверждения.",
+        reply_markup=buy_menu_keyboard(),
+    )
     await callback.answer()
 
 
 @router.callback_query(F.data == "buy:manual")
 async def choose_manual(callback: CallbackQuery):
-    await callback.message.answer("Выберите направление платежа:", reply_markup=manual_topup_keyboard())
+    await _edit_or_send(
+        callback,
+        "🏦 Выберите направление платежа:",
+        reply_markup=manual_topup_keyboard(),
+    )
     await callback.answer()
 
 
@@ -64,11 +88,20 @@ MANUAL_METHOD_MAP = {
 @router.callback_query(F.data.startswith("manual:"))
 async def manual_direction(callback: CallbackQuery):
     _, method = callback.data.split(":", 1)
+    if method == "back":
+        await _edit_or_send(
+            callback,
+            "🏦 Выберите направление платежа:",
+            reply_markup=manual_topup_keyboard(),
+        )
+        await callback.answer()
+        return
     if method not in MANUAL_METHOD_MAP:
         await callback.answer("Неизвестный метод", show_alert=True)
         return
-    await callback.message.answer(
-        "Выберите пакет, после оплаты менеджер начислит токены в течение 15 минут.",
+    await _edit_or_send(
+        callback,
+        "📦 Выберите пакет, после оплаты менеджер начислит токены в течение 15 минут.",
         reply_markup=manual_amount_keyboard(method),
     )
     await callback.answer()
@@ -95,7 +128,22 @@ async def manual_confirm(callback: CallbackQuery, billing_service: BillingServic
         callback.from_user.username if callback.from_user else None,
     )
     topup = await billing_service.create_manual_topup(user, method, amount)
-    await callback.message.answer(
-        f"Заявка создана. Номер заявки: #{topup.id}. Менеджер свяжется с вами в течение 15 минут."
+    await _edit_or_send(
+        callback,
+        (
+            f"✅ Заявка создана! Номер #{topup.id}. "
+            "Менеджер начислит токены в течение 15 минут."
+        ),
+        reply_markup=buy_menu_keyboard(),
     )
     await callback.answer("Заявка создана")
+
+
+@router.callback_query(F.data == "buy:back")
+async def buy_back(callback: CallbackQuery):
+    await _edit_or_send(
+        callback,
+        "🛒 Выберите способ пополнения:",
+        reply_markup=buy_menu_keyboard(),
+    )
+    await callback.answer()
