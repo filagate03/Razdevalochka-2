@@ -73,24 +73,6 @@ class ManualTopUp(Base):
     user: Mapped[User] = relationship(back_populates="topups")
 
 
-class AdminMember(Base):
-    __tablename__ = "admins"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    username: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
-    chat_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
-    user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), unique=True, nullable=True
-    )
-    added_by_id: Mapped[int | None] = mapped_column(
-        ForeignKey("admins.id", ondelete="SET NULL"), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=utcnow)
-
-    user: Mapped[User | None] = relationship("User", backref="admin_record", foreign_keys=[user_id])
-    added_by: Mapped["AdminMember" | None] = relationship("AdminMember", remote_side="AdminMember.id")
-
-
 __all__ = [
     "User",
     "Transaction",
@@ -98,5 +80,4 @@ __all__ = [
     "TransactionType",
     "ManualTopUpStatus",
     "ManualTopUpMethod",
-    "AdminMember",
 ]

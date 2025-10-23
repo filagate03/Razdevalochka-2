@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from ..models import AdminMember, User
+from ..models import User
 
 
 def admin_main_keyboard() -> InlineKeyboardMarkup:
@@ -13,7 +13,6 @@ def admin_main_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📣 Рассылка", callback_data="admin:broadcast")],
             [InlineKeyboardButton(text="📊 Экспорт CSV", callback_data="admin:export")],
             [InlineKeyboardButton(text="🧩 Интеграции", callback_data="admin:integrations")],
-            [InlineKeyboardButton(text="🛡 Админы", callback_data="admin:admins")],
         ]
     )
 
@@ -92,39 +91,9 @@ def admin_user_actions_keyboard(user_id: int) -> InlineKeyboardMarkup:
     )
 
 
-def admin_admins_keyboard(admins: list[AdminMember]) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = []
-    for admin in admins:
-        username = f"@{admin.username}" if admin.username else "(без username)"
-        label = username
-        if admin.chat_id:
-            label += f" · {admin.chat_id}"
-        if admin.username:
-            target = f"user:{admin.username}"
-        elif admin.chat_id:
-            target = f"chat:{admin.chat_id}"
-        else:
-            target = f"id:{admin.id}"
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=label,
-                    callback_data="admin:admins:noop",
-                ),
-                InlineKeyboardButton(
-                    text="🗑", callback_data=f"admin:admins:remove:{target}"
-                ),
-            ]
-        )
-    rows.append([InlineKeyboardButton(text="➕ Добавить", callback_data="admin:admins:add")])
-    rows.append([InlineKeyboardButton(text="🏠 В меню", callback_data="admin:home")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
 __all__ = [
     "admin_main_keyboard",
     "manual_request_keyboard",
     "admin_user_list_keyboard",
     "admin_user_actions_keyboard",
-    "admin_admins_keyboard",
 ]
