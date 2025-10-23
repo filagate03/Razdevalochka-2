@@ -5,12 +5,10 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, LabeledPrice, Message
 
-from ..config import Settings
 from ..keyboards.common import (
     buy_menu_keyboard,
     manual_amount_keyboard,
     manual_topup_keyboard,
-    purchase_complete_keyboard,
     stars_keyboard,
 )
 from ..models import ManualTopUpMethod
@@ -30,66 +28,10 @@ def _edit_or_send(callback: CallbackQuery, text: str, reply_markup=None):
     return inner()
 
 
-def _render_manual_instructions(
-    *,
-    topup_id: int,
-    method: ManualTopUpMethod,
-    amount: int,
-    price_rub: int | None,
-    settings: Settings,
-) -> str:
-    base_lines = [
-        f"✅ Заявка #{topup_id} оформлена",
-        f"🎯 Пакет: {amount} токенов",
-    ]
-    if price_rub:
-        base_lines.append(f"💵 К оплате: {price_rub}₽")
-
-    method_lines: list[str] = []
-    if method == ManualTopUpMethod.CARD_RU:
-        method_lines.append("🇷🇺 Способ: перевод на карту РФ")
-        if settings.payment_card_name:
-            method_lines.append(f"👤 Получатель: {settings.payment_card_name}")
-        if settings.payment_card_ru:
-            method_lines.append(f"💳 Номер карты: <code>{settings.payment_card_ru}</code>")
-    elif method == ManualTopUpMethod.CARD_INT:
-        method_lines.append("🌍 Способ: международная карта")
-        if settings.payment_card_intl_name or settings.payment_card_name:
-            holder = settings.payment_card_intl_name or settings.payment_card_name
-            method_lines.append(f"👤 Получатель: {holder}")
-        if settings.payment_card_intl:
-            method_lines.append(f"💳 Номер карты: <code>{settings.payment_card_intl}</code>")
-    else:
-        method_lines.append("💠 Способ: CryptoBot / криптовалюта")
-        if settings.crypto_wallet_btc:
-            method_lines.append(f"🔗 Адрес: <code>{settings.crypto_wallet_btc}</code>")
-        if settings.crypto_bot_token:
-            method_lines.append("🤖 Можно создать инвойс через @CryptoBot")
-
-    footer_lines = [
-        "📸 После перевода отправьте скрин чека и номер заявки менеджеру",
-        "— @hunt_tg или @berkyt",
-        "⏱ Зачисление происходит после ручной проверки (до 15 минут).",
-    ]
-    if method == ManualTopUpMethod.CARD_RU and not settings.payment_card_ru:
-        footer_lines.insert(0, "⚠️ Реквизиты карты не заполнены в .env — уточните у менеджера.")
-    if method == ManualTopUpMethod.CARD_INT and not settings.payment_card_intl:
-        footer_lines.insert(0, "⚠️ Реквизиты международной карты не заполнены в .env — уточните у менеджера.")
-    if method == ManualTopUpMethod.CRYPTO and not (settings.crypto_wallet_btc or settings.crypto_bot_token):
-        footer_lines.insert(0, "⚠️ Реквизиты для криптовалюты не заполнены — уточните у менеджера.")
-
-    return "\n".join(base_lines + method_lines + [""] + footer_lines)
-
-
 @router.message(Command("buy"))
+@router.message(F.text.casefold() == "купить токены")
 async def buy_menu(message: Message):
     await message.answer("🛒 Выберите способ пополнения:", reply_markup=buy_menu_keyboard())
-
-
-@router.callback_query(F.data == "portal:buy")
-async def buy_menu_inline(callback: CallbackQuery):
-    await _edit_or_send(callback, "🛒 Выберите способ пополнения:", buy_menu_keyboard())
-    await callback.answer()
 
 
 @router.callback_query(F.data == "buy:stars")
@@ -120,8 +62,8 @@ async def send_invoice(callback: CallbackQuery, stars_service: StarsService):
     )
     await _edit_or_send(
         callback,
-        f"💸 Счёт на {pack.amount} токенов отправлен. После оплаты вернитесь в меню.",
-        reply_markup=purchase_complete_keyboard(),
+        f"💸 Счёт на {pack.amount} токенов отправлен. Оплатите и дождитесь подтверждения.",
+        reply_markup=buy_menu_keyboard(),
     )
     await callback.answer()
 
@@ -144,7 +86,7 @@ MANUAL_METHOD_MAP = {
 
 
 @router.callback_query(F.data.startswith("manual:"))
-async def manual_direction(callback: CallbackQuery, settings: Settings):
+async def manual_direction(callback: CallbackQuery):
     _, method = callback.data.split(":", 1)
     if method == "back":
         await _edit_or_send(
@@ -159,21 +101,14 @@ async def manual_direction(callback: CallbackQuery, settings: Settings):
         return
     await _edit_or_send(
         callback,
-        (
-            "📦 Выберите пакет. Стоимость указана для наглядности, "
-            "после перевода пришлите чек менеджеру."
-        ),
-        reply_markup=manual_amount_keyboard(method, settings),
+        "📦 Выберите пакет, после оплаты менеджер начислит токены в течение 15 минут.",
+        reply_markup=manual_amount_keyboard(method),
     )
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("manual_confirm:"))
-async def manual_confirm(
-    callback: CallbackQuery,
-    billing_service: BillingService,
-    settings: Settings,
-) -> None:
+async def manual_confirm(callback: CallbackQuery, billing_service: BillingService):
     parts = callback.data.split(":")
     if len(parts) != 3:
         await callback.answer("Ошибка", show_alert=True)
@@ -192,25 +127,14 @@ async def manual_confirm(
         callback.message.chat.id,
         callback.from_user.username if callback.from_user else None,
     )
-    comment_parts = [
-        f"method={method.value}",
-        f"amount={amount}",
-    ]
-    price_rub = amount * settings.price_buy_rub if settings.price_buy_rub else None
-    if price_rub:
-        comment_parts.append(f"sum_rub={price_rub}")
-    comment = "; ".join(comment_parts)
-    topup = await billing_service.create_manual_topup(user, method, amount, comment)
+    topup = await billing_service.create_manual_topup(user, method, amount)
     await _edit_or_send(
         callback,
-        _render_manual_instructions(
-            topup_id=topup.id,
-            method=method,
-            amount=amount,
-            price_rub=price_rub,
-            settings=settings,
+        (
+            f"✅ Заявка создана! Номер #{topup.id}. "
+            "Менеджер начислит токены в течение 15 минут."
         ),
-        reply_markup=purchase_complete_keyboard(),
+        reply_markup=buy_menu_keyboard(),
     )
     await callback.answer("Заявка создана")
 

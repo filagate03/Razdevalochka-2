@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-import logging
-
 from ..db import session_scope
 from ..models import ManualTopUpMethod, ManualTopUpStatus, TransactionType, User
 from ..repositories import ManualTopUpRepository, TransactionRepository, UserRepository
-
-
-logger = logging.getLogger(__name__)
 
 
 class BillingService:
@@ -62,33 +57,19 @@ class BillingService:
             topup = await topup_repo.get(topup_id)
             if not topup:
                 return ManualTopUpStatus.REJECTED, None
-            if topup.status != ManualTopUpStatus.PENDING:
-                logger.warning(
-                    "Attempt to approve manual topup with status %s (id=%s)",
-                    topup.status,
-                    topup_id,
-                )
-                return topup.status, None
-
-            final_amount = amount if amount is not None else topup.amount
-
-            updated = await topup_repo.update_status(
-                topup.id,
-                ManualTopUpStatus.APPROVED,
-                amount=final_amount,
-            )
-            topup = updated or topup
-
+            if amount is not None and amount != topup.amount:
+                topup = await topup_repo.update_status(
+                    topup.id,
+                    ManualTopUpStatus.APPROVED,
+                    amount=amount,
+                ) or topup
+            else:
+                topup = await topup_repo.update_status(topup.id, ManualTopUpStatus.APPROVED) or topup
             user = await user_repo.get_by_id(topup.user_id)
             if user:
-                await user_repo.adjust_balance(user, final_amount)
-                await transaction_repo.add(
-                    user.id,
-                    final_amount,
-                    TransactionType.MANUAL,
-                    f"Topup #{topup_id} approved",
-                )
-            return ManualTopUpStatus.APPROVED, final_amount
+                await user_repo.adjust_balance(user, topup.amount)
+                await transaction_repo.add(user.id, topup.amount, TransactionType.MANUAL, "Manual approval")
+            return ManualTopUpStatus.APPROVED, topup.amount
 
     async def reject_manual_topup(self, topup_id: int) -> ManualTopUpStatus:
         async with session_scope() as session:

@@ -25,7 +25,7 @@ class StarsPack:
 class StarsService:
     def __init__(self, packs: Iterable[int] | None = None):
         settings = get_settings()
-        pack_values = list(packs or settings.get_stars_packs_list())
+        pack_values = list(packs or settings.stars_packs)
         self._packs = [StarsPack(amount=p) for p in sorted(pack_values)]
 
     @property

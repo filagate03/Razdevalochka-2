@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Awaitable, Callable, Dict
+from typing import Any, Callable, Dict, Awaitable
 
 from aiogram import BaseMiddleware
-from aiogram.types import CallbackQuery, Message, Update
+from aiogram.types import Message, Update
 
 from ..config import get_settings
-from ..services.admin import AdminService
 
 
 class AdminFilterMiddleware(BaseMiddleware):
@@ -20,20 +19,8 @@ class AdminFilterMiddleware(BaseMiddleware):
         event: Update,
         data: Dict[str, Any],
     ) -> Any:
-        subject = None
         if isinstance(event, Message):
-            subject = event.from_user
-        elif isinstance(event, CallbackQuery):
-            subject = event.from_user
-        if subject:
-            chat_id = subject.id
-            username = subject.username
-            is_admin = chat_id in self._settings.admins
-            if not is_admin:
-                admin_service: AdminService | None = data.get("admin_service")
-                if admin_service:
-                    is_admin = await admin_service.is_admin(chat_id, username)
-            data["is_admin"] = is_admin
+            data["is_admin"] = event.from_user and event.from_user.id in self._settings.admins
         return await handler(event, data)
 
 
