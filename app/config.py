@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     image_webhook_url: str | None = Field(default=None, alias="IMAGE_WEBHOOK_URL")
     crypto_bot_token: str | None = Field(default=None, alias="CRYPTO_BOT_TOKEN")
 
+    payment_card_ru: str = Field("", alias="PAYMENT_CARD_RU")
+    payment_card_name: str = Field("", alias="PAYMENT_CARD_NAME")
+    payment_card_intl: str = Field("", alias="PAYMENT_CARD_INTL")
+    payment_card_intl_name: str = Field("", alias="PAYMENT_CARD_INTL_NAME")
+    crypto_wallet_btc: str = Field("", alias="CRYPTO_WALLET_BTC")
+
     database_url: str = Field("sqlite+aiosqlite:///./app.db", alias="DATABASE_URL")
 
     @field_validator("admins", mode="before")

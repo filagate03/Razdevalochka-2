@@ -8,6 +8,7 @@ import csv
 from sqlalchemy import Select, cast, func, or_, select, update
 from sqlalchemy.sql.sqltypes import String
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from .models import (
     AdminMember,
@@ -140,7 +141,12 @@ class ManualTopUpRepository:
         return topup
 
     async def list_pending(self) -> list[ManualTopUp]:
-        stmt = select(ManualTopUp).where(ManualTopUp.status == ManualTopUpStatus.PENDING).order_by(ManualTopUp.created_at)
+        stmt = (
+            select(ManualTopUp)
+            .where(ManualTopUp.status == ManualTopUpStatus.PENDING)
+            .options(selectinload(ManualTopUp.user))
+            .order_by(ManualTopUp.created_at)
+        )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 

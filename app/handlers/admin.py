@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
 
+from ..config import Settings
 from ..keyboards.admin import (
     admin_main_keyboard,
     admin_admins_keyboard,
@@ -14,7 +15,7 @@ from ..keyboards.admin import (
     admin_user_list_keyboard,
     manual_request_keyboard,
 )
-from ..models import ManualTopUpStatus, User
+from ..models import ManualTopUpMethod, ManualTopUpStatus, User
 from ..services.admin import AdminService
 from ..services.billing import BillingService
 from ..services.integrations import IntegrationService
@@ -538,6 +539,7 @@ async def admin_user_adjust(
 async def admin_requests(
     callback: CallbackQuery,
     billing_service: BillingService,
+    settings: Settings,
     is_admin: bool,
 ):
     if not is_admin:
@@ -547,16 +549,45 @@ async def admin_requests(
     if not pending:
         await callback.message.answer("📭 Нет заявок в ожидании")
     for request in pending:
+        user = request.user
+        user_label = None
+        if user:
+            if user.username:
+                user_label = f"@{user.username}"
+            else:
+                user_label = str(user.chat_id)
+        else:
+            user_label = str(request.user_id)
+
+        method_map = {
+            ManualTopUpMethod.CARD_RU: "🇷🇺 Карта РФ",
+            ManualTopUpMethod.CARD_INT: "🌍 Международная карта",
+            ManualTopUpMethod.CRYPTO: "💠 CryptoBot / крипта",
+        }
+        method_label = method_map.get(request.method, request.method.value)
+
+        lines = [
+            f"📨 Заявка #{request.id}",
+            f"👤 Пользователь: {user_label}",
+            f"🆔 Chat ID: {user.chat_id if user else request.user_id}",
+            f"💰 Токены: {request.amount}",
+            f"💳 Метод: {method_label}",
+        ]
+
+        price_hint = request.amount * settings.price_buy_rub if settings.price_buy_rub else None
+        if price_hint:
+            if request.method == ManualTopUpMethod.CRYPTO:
+                lines.append(f"💵 Эквивалент: ≈{price_hint}₽ (уточните перед зачислением)")
+            else:
+                lines.append(f"💵 К оплате: {price_hint}₽")
+
+        if request.comment:
+            lines.append(f"📝 Комментарий: {request.comment}")
+        lines.append(f"🕒 Создано: {request.created_at:%d.%m %H:%M}")
+        lines.append(f"📌 Статус: {request.status.value}")
+
         await callback.message.answer(
-            "\n".join(
-                [
-                    f"📨 Заявка #{request.id}",
-                    f"👤 Пользователь: {request.user_id}",
-                    f"💳 Метод: {request.method.value}",
-                    f"💰 Сумма: {request.amount}",
-                    f"📌 Статус: {request.status.value}",
-                ]
-            ),
+            "\n".join(lines),
             reply_markup=manual_request_keyboard(request.id),
         )
     await callback.answer()

@@ -72,6 +72,7 @@ async def main() -> None:
         admin_service=admin_service,
         stars_service=stars_service,
         integration_service=integration_service,
+        settings=settings,
     )
 
     dp.update.middleware(services_middleware)

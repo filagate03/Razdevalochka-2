@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from ..config import Settings
 from ..services.stars import StarsService
 
 
@@ -51,9 +52,9 @@ def stars_keyboard(stars_service: StarsService) -> InlineKeyboardMarkup:
 def manual_topup_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="РФ карты", callback_data="manual:card_ru")],
-            [InlineKeyboardButton(text="Международные", callback_data="manual:card_int")],
-            [InlineKeyboardButton(text="Криптовалюта", callback_data="manual:crypto")],
+            [InlineKeyboardButton(text="🇷🇺 Карта РФ", callback_data="manual:card_ru")],
+            [InlineKeyboardButton(text="🌍 Международная карта", callback_data="manual:card_int")],
+            [InlineKeyboardButton(text="💠 CryptoBot", callback_data="manual:crypto")],
             [
                 InlineKeyboardButton(text="⬅️ Назад", callback_data="buy:back"),
                 InlineKeyboardButton(text="🏠 Меню", callback_data="portal:home"),
@@ -65,27 +66,38 @@ def manual_topup_keyboard() -> InlineKeyboardMarkup:
 def buy_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Telegram Stars", callback_data="buy:stars")],
-            [InlineKeyboardButton(text="Ручное пополнение", callback_data="buy:manual")],
-            [InlineKeyboardButton(text="Внешняя ссылка", url="https://example.com/pay")],
+            [InlineKeyboardButton(text="✨ Telegram Stars", callback_data="buy:stars")],
+            [InlineKeyboardButton(text="🏦 Ручное пополнение", callback_data="buy:manual")],
+            [InlineKeyboardButton(text="🔗 Внешняя ссылка", url="https://example.com/pay")],
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="portal:home")],
         ]
     )
 
 
-def manual_amount_keyboard(method: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="1 токен", callback_data=f"manual_confirm:{method}:1")],
-            [InlineKeyboardButton(text="3 токена", callback_data=f"manual_confirm:{method}:3")],
-            [InlineKeyboardButton(text="5 токенов", callback_data=f"manual_confirm:{method}:5")],
-            [InlineKeyboardButton(text="10 токенов", callback_data=f"manual_confirm:{method}:10")],
+def manual_amount_keyboard(method: str, settings: Settings) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for amount in sorted(settings.stars_packs):
+        price_rub = amount * settings.price_buy_rub if settings.price_buy_rub else None
+        price_label = (
+            f"{amount} токенов"
+            if price_rub is None
+            else f"{amount} токенов · {price_rub}₽"
+        )
+        rows.append(
             [
-                InlineKeyboardButton(text="⬅️ Назад", callback_data="manual:back"),
-                InlineKeyboardButton(text="🏠 Меню", callback_data="portal:home"),
-            ],
+                InlineKeyboardButton(
+                    text=price_label,
+                    callback_data=f"manual_confirm:{method}:{amount}",
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(text="⬅️ Назад", callback_data="manual:back"),
+            InlineKeyboardButton(text="🏠 Меню", callback_data="portal:home"),
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def purchase_complete_keyboard() -> InlineKeyboardMarkup:
