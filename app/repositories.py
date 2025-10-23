@@ -8,18 +8,8 @@ import csv
 from sqlalchemy import Select, cast, func, or_, select, update
 from sqlalchemy.sql.sqltypes import String
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from .models import (
-    AdminMember,
-    BotSettings,
-    ManualTopUp,
-    ManualTopUpMethod,
-    ManualTopUpStatus,
-    Transaction,
-    TransactionType,
-    User,
-)
+from .models import ManualTopUp, ManualTopUpMethod, ManualTopUpStatus, Transaction, TransactionType, User
 
 
 class UserRepository:
@@ -142,12 +132,7 @@ class ManualTopUpRepository:
         return topup
 
     async def list_pending(self) -> list[ManualTopUp]:
-        stmt = (
-            select(ManualTopUp)
-            .where(ManualTopUp.status == ManualTopUpStatus.PENDING)
-            .options(selectinload(ManualTopUp.user))
-            .order_by(ManualTopUp.created_at)
-        )
+        stmt = select(ManualTopUp).where(ManualTopUp.status == ManualTopUpStatus.PENDING).order_by(ManualTopUp.created_at)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -181,90 +166,8 @@ class ManualTopUpRepository:
         return list(result.scalars().all())
 
 
-class AdminRepository:
-    def __init__(self, session: AsyncSession):
-        self.session = session
-
-    async def list_all(self) -> list[AdminMember]:
-        result = await self.session.execute(select(AdminMember).order_by(AdminMember.created_at))
-        return list(result.scalars().all())
-
-    async def get_by_username(self, username: str) -> AdminMember | None:
-        normalized = username.lstrip("@")
-        result = await self.session.execute(
-            select(AdminMember).where(func.lower(AdminMember.username) == func.lower(normalized))
-        )
-        return result.scalar_one_or_none()
-
-    async def get_by_id(self, admin_id: int) -> AdminMember | None:
-        result = await self.session.execute(select(AdminMember).where(AdminMember.id == admin_id))
-        return result.scalar_one_or_none()
-
-    async def get_by_chat_id(self, chat_id: int) -> AdminMember | None:
-        result = await self.session.execute(select(AdminMember).where(AdminMember.chat_id == chat_id))
-        return result.scalar_one_or_none()
-
-    async def get_by_user_id(self, user_id: int) -> AdminMember | None:
-        result = await self.session.execute(select(AdminMember).where(AdminMember.user_id == user_id))
-        return result.scalar_one_or_none()
-
-    async def ensure_username(self, username: str, *, added_by_id: int | None = None) -> AdminMember:
-        normalized = username.lstrip("@")
-        admin = await self.get_by_username(normalized)
-        if admin is None:
-            admin = AdminMember(username=normalized, added_by_id=added_by_id)
-            self.session.add(admin)
-            await self.session.flush()
-        return admin
-
-    async def attach_user(self, admin: AdminMember, user: User) -> AdminMember:
-        admin.user_id = user.id
-        admin.chat_id = user.chat_id
-        if not admin.username and user.username:
-            admin.username = user.username
-        await self.session.flush()
-        return admin
-
-    async def detach_user(self, admin: AdminMember) -> AdminMember:
-        admin.user_id = None
-        admin.chat_id = None
-        await self.session.flush()
-        return admin
-
-    async def remove(self, admin: AdminMember) -> None:
-        await self.session.delete(admin)
-
-
-class BotSettingsRepository:
-    def __init__(self, session: AsyncSession):
-        self.session = session
-
-    async def get(self) -> BotSettings:
-        result = await self.session.execute(select(BotSettings).limit(1))
-        settings = result.scalar_one_or_none()
-        if settings is None:
-            settings = BotSettings(id=1)
-            self.session.add(settings)
-            await self.session.flush()
-        return settings
-
-    async def update_greeting(
-        self,
-        *,
-        text: str | None = None,
-        image_file_id: str | None = None,
-    ) -> BotSettings:
-        settings = await self.get()
-        settings.greeting_text = text
-        settings.greeting_image_file_id = image_file_id
-        await self.session.flush()
-        return settings
-
-
 __all__ = [
     "UserRepository",
     "TransactionRepository",
     "ManualTopUpRepository",
-    "AdminRepository",
-    "BotSettingsRepository",
 ]

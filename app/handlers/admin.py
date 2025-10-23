@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import html
-import logging
-
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
@@ -10,16 +7,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
 
-from ..config import Settings
+from ..config import get_settings
 from ..keyboards.admin import (
     admin_main_keyboard,
-    admin_admins_keyboard,
-    admin_greeting_keyboard,
     admin_user_actions_keyboard,
     admin_user_list_keyboard,
     manual_request_keyboard,
 )
-from ..models import ManualTopUpMethod, ManualTopUpStatus, User
+from ..models import ManualTopUpStatus, User
 from ..services.admin import AdminService
 from ..services.billing import BillingService
 from ..services.integrations import IntegrationService
@@ -30,44 +25,15 @@ router = Router()
 PAGE_SIZE = 5
 
 
-logger = logging.getLogger(__name__)
-
-
 class AdminStates(StatesGroup):
     waiting_for_user_query = State()
     waiting_for_broadcast = State()
     waiting_for_custom_amount = State()
-    waiting_for_admin_username = State()
-    waiting_for_greeting_text = State()
-    waiting_for_greeting_image = State()
 
 
-def _log_access_denied(user, action: str) -> None:
-    if user:
-        logger.warning(
-            "Admin access denied for action=%s user_id=%s username=%s",
-            action,
-            user.id,
-            user.username,
-        )
-    else:
-        logger.warning("Admin access denied for action=%s", action)
-
-
-async def _ensure_admin_message(message: Message, is_admin: bool, action: str) -> bool:
-    if is_admin:
-        return True
-    _log_access_denied(message.from_user if message else None, action)
-    await message.answer("⛔️ Доступ запрещён.")
-    return False
-
-
-async def _ensure_admin_callback(callback: CallbackQuery, is_admin: bool, action: str) -> bool:
-    if is_admin:
-        return True
-    _log_access_denied(callback.from_user if callback else None, action)
-    await callback.answer("Нет доступа", show_alert=True)
-    return False
+def is_admin(message: Message) -> bool:
+    settings = get_settings()
+    return bool(message.from_user and message.from_user.id in settings.admins)
 
 
 async def respond_with_panel(
@@ -206,300 +172,18 @@ async def render_user_detail(
     await state.update_data(selected_user_id=user.id)
 
 
-async def render_admins_panel(
-    *,
-    message: Message | None,
-    bot: Bot | None,
-    state: FSMContext,
-    admin_service: AdminService,
-) -> None:
-    admins = await admin_service.list_admins()
-    if admins:
-        lines = ["🛡 Список администраторов:"]
-        for admin in admins:
-            username = f"@{admin.username}" if admin.username else "(без username)"
-            suffix = f" · {admin.chat_id}" if admin.chat_id else ""
-            lines.append(f"• {username}{suffix}")
-        text = "\n".join(lines)
-    else:
-        text = "🛡 Пока нет назначенных администраторов. Добавьте username, чтобы выдать права."
-    markup = admin_admins_keyboard(admins)
-    if message:
-        await respond_with_panel(message, state, text, markup)
-    elif bot:
-        await edit_panel_from_state(state, bot, text=text, markup=markup)
-
-
-async def render_greeting_panel(
-    *,
-    message: Message | None,
-    bot: Bot | None,
-    state: FSMContext,
-    admin_service: AdminService,
-) -> None:
-    settings = await admin_service.get_bot_settings()
-    lines = ["💬 Приветственное сообщение"]
-    if settings.greeting_text:
-        lines.append(f"Текст:\n{html.escape(settings.greeting_text)}")
-    else:
-        lines.append("Текст: используется значение по умолчанию")
-    if settings.greeting_image_file_id:
-        lines.append("Картинка: ✅ установлена")
-    else:
-        lines.append("Картинка: ⚠️ не установлена")
-    lines.append("\nИспользуйте кнопки ниже, чтобы обновить оформление.")
-    markup = admin_greeting_keyboard(settings)
-    text = "\n".join(lines)
-    if message:
-        await respond_with_panel(message, state, text, markup)
-    elif bot:
-        await edit_panel_from_state(state, bot, text=text, markup=markup)
-
-
-@router.callback_query(F.data == "admin:admins")
-async def admin_admins(
-    callback: CallbackQuery,
-    state: FSMContext,
-    admin_service: AdminService,
-    is_admin: bool,
-):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_admins"):
-        return
-    await render_admins_panel(
-        message=callback.message,
-        bot=None,
-        state=state,
-        admin_service=admin_service,
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "admin:admins:add")
-async def admin_admins_add(callback: CallbackQuery, state: FSMContext, is_admin: bool):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_admins_add"):
-        return
-    await state.set_state(AdminStates.waiting_for_admin_username)
-    await callback.message.answer(
-        "🆕 Отправьте username нового администратора (например, @hunt_tg)."
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("admin:admins:remove:"))
-async def admin_admins_remove(
-    callback: CallbackQuery,
-    admin_service: AdminService,
-    state: FSMContext,
-    is_admin: bool,
-):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_admins_remove"):
-        return
-    token = callback.data.split(":", 3)[-1]
-    removed = await admin_service.remove_admin_target(token)
-    if removed:
-        await render_admins_panel(
-            message=None,
-            bot=callback.bot,
-            state=state,
-            admin_service=admin_service,
-        )
-        await callback.answer("Администратор удалён")
-    else:
-        await callback.answer("Не удалось найти администратора", show_alert=True)
-
-
-@router.callback_query(F.data == "admin:admins:noop")
-async def admin_admins_noop(callback: CallbackQuery, is_admin: bool):
-    if await _ensure_admin_callback(callback, is_admin, "admin_admins_noop"):
-        await callback.answer()
-
-
-@router.message(AdminStates.waiting_for_admin_username)
-async def admin_admins_handle_username(
-    message: Message,
-    state: FSMContext,
-    admin_service: AdminService,
-    is_admin: bool,
-):
-    if not await _ensure_admin_message(message, is_admin, "admin_admins_handle_username"):
-        return
-    raw_username = (message.text or "").strip()
-    if not raw_username:
-        await message.answer("Введите username нового администратора.")
-        return
-    try:
-        admin = await admin_service.add_admin_by_username(
-            raw_username,
-            added_by=message.from_user.id if message.from_user else None,
-        )
-    except ValueError:
-        await message.answer("Имя пользователя должно быть в формате @username")
-        return
-    mention = f"@{admin.username}" if admin.username else "Администратор"
-    await message.answer(f"✅ {mention} добавлен.")
-    await render_admins_panel(
-        message=None,
-        bot=message.bot,
-        state=state,
-        admin_service=admin_service,
-    )
-    await state.set_state(None)
-
-
-@router.callback_query(F.data == "admin:greeting")
-async def admin_greeting(
-    callback: CallbackQuery,
-    state: FSMContext,
-    admin_service: AdminService,
-    is_admin: bool,
-):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_greeting"):
-        return
-    await render_greeting_panel(
-        message=callback.message,
-        bot=None,
-        state=state,
-        admin_service=admin_service,
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "admin:greeting:text")
-async def admin_greeting_text_request(
-    callback: CallbackQuery,
-    state: FSMContext,
-    is_admin: bool,
-):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_greeting_text_request"):
-        return
-    await state.set_state(AdminStates.waiting_for_greeting_text)
-    await callback.message.answer(
-        "✏️ Отправьте новый текст приветствия. Напишите ‘отмена’ для отмены."
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "admin:greeting:image")
-async def admin_greeting_image_request(
-    callback: CallbackQuery,
-    state: FSMContext,
-    is_admin: bool,
-):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_greeting_image_request"):
-        return
-    await state.set_state(AdminStates.waiting_for_greeting_image)
-    await callback.message.answer(
-        "🖼 Отправьте фотографию или изображение. Напишите ‘отмена’ для отмены."
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == "admin:greeting:clear_image")
-async def admin_greeting_clear_image(
-    callback: CallbackQuery,
-    state: FSMContext,
-    admin_service: AdminService,
-    is_admin: bool,
-):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_greeting_clear_image"):
-        return
-    await admin_service.update_greeting_image(None)
-    await render_greeting_panel(
-        message=None,
-        bot=callback.bot,
-        state=state,
-        admin_service=admin_service,
-    )
-    await callback.answer("Картинка сброшена")
-
-
-@router.callback_query(F.data == "admin:greeting:reset_text")
-async def admin_greeting_reset_text(
-    callback: CallbackQuery,
-    state: FSMContext,
-    admin_service: AdminService,
-    is_admin: bool,
-):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_greeting_reset_text"):
-        return
-    await admin_service.update_greeting_text(None)
-    await render_greeting_panel(
-        message=None,
-        bot=callback.bot,
-        state=state,
-        admin_service=admin_service,
-    )
-    await callback.answer("Текст сброшен")
-
-
-@router.message(AdminStates.waiting_for_greeting_text)
-async def admin_greeting_text_apply(
-    message: Message,
-    state: FSMContext,
-    admin_service: AdminService,
-    is_admin: bool,
-):
-    if not await _ensure_admin_message(message, is_admin, "admin_greeting_text_apply"):
-        return
-    content = (message.text or "").strip()
-    if content.lower() in {"отмена", "/cancel"}:
-        await message.answer("❎ Изменения отменены.")
-        await state.set_state(None)
-        return
-    await admin_service.update_greeting_text(content or None)
-    await message.answer("✅ Текст приветствия обновлён.")
-    await render_greeting_panel(
-        message=None,
-        bot=message.bot,
-        state=state,
-        admin_service=admin_service,
-    )
-    await state.set_state(None)
-
-
-@router.message(AdminStates.waiting_for_greeting_image)
-async def admin_greeting_image_apply(
-    message: Message,
-    state: FSMContext,
-    admin_service: AdminService,
-    is_admin: bool,
-):
-    if not await _ensure_admin_message(message, is_admin, "admin_greeting_image_apply"):
-        return
-    if message.text and message.text.strip().lower() in {"отмена", "/cancel"}:
-        await message.answer("❎ Изменения отменены.")
-        await state.set_state(None)
-        return
-    file_id: str | None = None
-    if message.photo:
-        file_id = message.photo[-1].file_id
-    elif message.document and (message.document.mime_type or "").startswith("image/"):
-        file_id = message.document.file_id
-    if not file_id:
-        await message.answer("Отправьте изображение или напишите ‘отмена’.")
-        return
-    await admin_service.update_greeting_image(file_id)
-    await message.answer("✅ Картинка приветствия обновлена.")
-    await render_greeting_panel(
-        message=None,
-        bot=message.bot,
-        state=state,
-        admin_service=admin_service,
-    )
-    await state.set_state(None)
-
-
 @router.message(Command("admin"))
-async def admin_panel(message: Message, state: FSMContext, is_admin: bool):
-    if not await _ensure_admin_message(message, is_admin, "admin_panel"):
+async def admin_panel(message: Message, state: FSMContext):
+    if not is_admin(message):
         return
     await state.clear()
     await message.answer("🛠 Админ-панель:", reply_markup=admin_main_keyboard())
 
 
 @router.callback_query(F.data == "admin:home")
-async def admin_home(callback: CallbackQuery, state: FSMContext, is_admin: bool):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_home"):
+async def admin_home(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.message):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     await state.clear()
     await callback.message.edit_text("🛠 Админ-панель:", reply_markup=admin_main_keyboard())
@@ -507,13 +191,9 @@ async def admin_home(callback: CallbackQuery, state: FSMContext, is_admin: bool)
 
 
 @router.callback_query(F.data == "admin:users")
-async def admin_users(
-    callback: CallbackQuery,
-    state: FSMContext,
-    admin_service: AdminService,
-    is_admin: bool,
-):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_users"):
+async def admin_users(callback: CallbackQuery, state: FSMContext, admin_service: AdminService):
+    if not is_admin(callback.message):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     await state.update_data(admin_user_query=None)
     await render_user_list(
@@ -531,9 +211,9 @@ async def admin_users_page(
     callback: CallbackQuery,
     state: FSMContext,
     admin_service: AdminService,
-    is_admin: bool,
 ):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_users_page"):
+    if not is_admin(callback.message):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     _, _, page_str = callback.data.split(":", 2)
     page = int(page_str)
@@ -548,8 +228,9 @@ async def admin_users_page(
 
 
 @router.callback_query(F.data == "admin_users:search")
-async def admin_users_search(callback: CallbackQuery, state: FSMContext, is_admin: bool):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_users_search"):
+async def admin_users_search(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.message):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     await state.set_state(AdminStates.waiting_for_user_query)
     await callback.message.answer("🔍 Введите username, ID или chat_id пользователя")
@@ -561,9 +242,9 @@ async def admin_users_clear(
     callback: CallbackQuery,
     state: FSMContext,
     admin_service: AdminService,
-    is_admin: bool,
 ):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_users_clear"):
+    if not is_admin(callback.message):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     await state.update_data(admin_user_query=None)
     await render_user_list(
@@ -581,9 +262,8 @@ async def handle_user_search(
     message: Message,
     state: FSMContext,
     admin_service: AdminService,
-    is_admin: bool,
 ):
-    if not await _ensure_admin_message(message, is_admin, "handle_user_search"):
+    if not is_admin(message):
         return
     query = message.text.strip()
     await state.update_data(admin_user_query=query or None)
@@ -604,9 +284,9 @@ async def admin_user_select(
     state: FSMContext,
     user_service: UserService,
     billing_service: BillingService,
-    is_admin: bool,
 ):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_user_select"):
+    if not is_admin(callback.message):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     _, _, user_id_str = callback.data.split(":", 2)
     user = await user_service.get_by_id(int(user_id_str))
@@ -628,9 +308,9 @@ async def admin_user_back(
     callback: CallbackQuery,
     state: FSMContext,
     admin_service: AdminService,
-    is_admin: bool,
 ):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_user_back"):
+    if not is_admin(callback.message):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     page = (await state.get_data()).get("admin_user_page", 0)
     await render_user_list(
@@ -644,8 +324,9 @@ async def admin_user_back(
 
 
 @router.callback_query(F.data.startswith("admin_user:custom:"))
-async def admin_user_custom(callback: CallbackQuery, state: FSMContext, is_admin: bool):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_user_custom"):
+async def admin_user_custom(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.message):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     _, _, user_id_str = callback.data.split(":", 2)
     await state.set_state(AdminStates.waiting_for_custom_amount)
@@ -662,9 +343,8 @@ async def admin_user_custom_amount(
     state: FSMContext,
     billing_service: BillingService,
     user_service: UserService,
-    is_admin: bool,
 ):
-    if not await _ensure_admin_message(message, is_admin, "admin_user_custom_amount"):
+    if not is_admin(message):
         return
     data = await state.get_data()
     user_id = data.get("custom_user_id")
@@ -703,9 +383,9 @@ async def admin_user_adjust(
     billing_service: BillingService,
     user_service: UserService,
     state: FSMContext,
-    is_admin: bool,
 ):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_user_adjust"):
+    if not is_admin(callback.message):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     _, _, payload = callback.data.split(":", 2)
     user_id_str, direction, amount_str = payload.split(":")
@@ -728,69 +408,33 @@ async def admin_user_adjust(
 
 
 @router.callback_query(F.data == "admin:requests")
-async def admin_requests(
-    callback: CallbackQuery,
-    billing_service: BillingService,
-    settings: Settings,
-    is_admin: bool,
-):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_requests"):
+async def admin_requests(callback: CallbackQuery, billing_service: BillingService):
+    if not is_admin(callback.message):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     pending = await billing_service.list_pending_topups()
     if not pending:
         await callback.message.answer("📭 Нет заявок в ожидании")
     for request in pending:
-        user = request.user
-        user_label = None
-        if user:
-            if user.username:
-                user_label = f"@{user.username}"
-            else:
-                user_label = str(user.chat_id)
-        else:
-            user_label = str(request.user_id)
-
-        method_map = {
-            ManualTopUpMethod.CARD_RU: "🇷🇺 Карта РФ",
-            ManualTopUpMethod.CARD_INT: "🌍 Международная карта",
-            ManualTopUpMethod.CRYPTO: "💠 CryptoBot / крипта",
-        }
-        method_label = method_map.get(request.method, request.method.value)
-
-        lines = [
-            f"📨 Заявка #{request.id}",
-            f"👤 Пользователь: {user_label}",
-            f"🆔 Chat ID: {user.chat_id if user else request.user_id}",
-            f"💰 Токены: {request.amount}",
-            f"💳 Метод: {method_label}",
-        ]
-
-        price_hint = request.amount * settings.price_buy_rub if settings.price_buy_rub else None
-        if price_hint:
-            if request.method == ManualTopUpMethod.CRYPTO:
-                lines.append(f"💵 Эквивалент: ≈{price_hint}₽ (уточните перед зачислением)")
-            else:
-                lines.append(f"💵 К оплате: {price_hint}₽")
-
-        if request.comment:
-            lines.append(f"📝 Комментарий: {request.comment}")
-        lines.append(f"🕒 Создано: {request.created_at:%d.%m %H:%M}")
-        lines.append(f"📌 Статус: {request.status.value}")
-
         await callback.message.answer(
-            "\n".join(lines),
+            "\n".join(
+                [
+                    f"📨 Заявка #{request.id}",
+                    f"👤 Пользователь: {request.user_id}",
+                    f"💳 Метод: {request.method.value}",
+                    f"💰 Сумма: {request.amount}",
+                    f"📌 Статус: {request.status.value}",
+                ]
+            ),
             reply_markup=manual_request_keyboard(request.id),
         )
     await callback.answer()
 
 
 @router.callback_query(F.data == "admin:broadcast")
-async def admin_broadcast(
-    callback: CallbackQuery,
-    state: FSMContext,
-    is_admin: bool,
-):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_broadcast"):
+async def admin_broadcast(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.message):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     await state.set_state(AdminStates.waiting_for_broadcast)
     await callback.message.answer("📣 Отправьте текст рассылки")
@@ -798,12 +442,9 @@ async def admin_broadcast(
 
 
 @router.callback_query(F.data == "admin:export")
-async def admin_export(
-    callback: CallbackQuery,
-    billing_service: BillingService,
-    is_admin: bool,
-):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_export"):
+async def admin_export(callback: CallbackQuery, billing_service: BillingService):
+    if not is_admin(callback.message):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     csv_content = await billing_service.export_transactions_csv()
     file = BufferedInputFile(csv_content.encode("utf-8"), filename="transactions.csv")
@@ -815,9 +456,9 @@ async def admin_export(
 async def admin_integrations(
     callback: CallbackQuery,
     integration_service: IntegrationService,
-    is_admin: bool,
 ):
-    if not await _ensure_admin_callback(callback, is_admin, "admin_integrations"):
+    if not is_admin(callback.message):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     lines = ["🧩 Статус интеграций:"]
     lines.append(
@@ -841,9 +482,8 @@ async def process_broadcast(
     message: Message,
     state: FSMContext,
     user_service: UserService,
-    is_admin: bool,
 ):
-    if not await _ensure_admin_message(message, is_admin, "process_broadcast"):
+    if not is_admin(message):
         return
     users = await user_service.list_all()
     count = 0
@@ -861,9 +501,9 @@ async def process_broadcast(
 async def process_request(
     callback: CallbackQuery,
     billing_service: BillingService,
-    is_admin: bool,
 ):
-    if not await _ensure_admin_callback(callback, is_admin, "process_request"):
+    if not is_admin(callback.message):
+        await callback.answer("Нет доступа", show_alert=True)
         return
     _, action, req_id_str = callback.data.split(":", 2)
     try:
@@ -890,9 +530,8 @@ async def adjust_balance(
     message: Message,
     billing_service: BillingService,
     user_service: UserService,
-    is_admin: bool,
 ):
-    if not await _ensure_admin_message(message, is_admin, "adjust_balance"):
+    if not is_admin(message):
         return
     parts = message.text.split(maxsplit=3)
     if len(parts) < 4:
@@ -914,8 +553,8 @@ async def adjust_balance(
 
 
 @router.message(Command("health"))
-async def health_check(message: Message, billing_service: BillingService, is_admin: bool):
-    if not await _ensure_admin_message(message, is_admin, "health_check"):
+async def health_check(message: Message, billing_service: BillingService):
+    if not is_admin(message):
         return
     total = await billing_service.total_turnover()
     await message.answer(f"🩺 OK. Оборот операций: {total}")

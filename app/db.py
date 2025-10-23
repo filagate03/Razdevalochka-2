@@ -14,20 +14,7 @@ class Base(DeclarativeBase):
 
 def create_engine() -> AsyncEngine:
     settings = get_settings()
-    database_url = settings.database_url
-    if database_url.startswith("sqlite:///") and "+aiosqlite" not in database_url:
-        database_url = database_url.replace("sqlite:///", "sqlite+aiosqlite:///")
-
-    connect_args: dict[str, object] = {}
-    if database_url.startswith("sqlite"):
-        connect_args["check_same_thread"] = False
-
-    engine = create_async_engine(
-        database_url,
-        echo=False,
-        future=True,
-        connect_args=connect_args,
-    )
+    engine = create_async_engine(settings.database_url, echo=False, future=True)
     return engine
 
 
