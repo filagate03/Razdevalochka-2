@@ -12,76 +12,39 @@ logger = logging.getLogger(__name__)
 
 
 class CryptoPaymentService:
-    """Wrapper around :mod:`aiocryptopay` with graceful error handling."""
-
     def __init__(self) -> None:
         settings = get_settings()
-        self._token = settings.crypto_bot_token
-        self._network = Networks.MAIN_NET
+        self._client = AioCryptoPay(token=settings.crypto_bot_token, network=Networks.MAIN_NET)
 
-    def _new_client(self) -> AioCryptoPay:
-        return AioCryptoPay(token=self._token, network=self._network)
-
-    async def create_invoice(
-        self,
-        amount: float,
-        currency: str = "USDT",
-        description: str = "",
-    ) -> Optional[Dict[str, str]]:
-        client = self._new_client()
+    async def create_invoice(self, amount: float, currency: str = "USDT", description: str = "") -> Optional[Dict[str, str]]:
         try:
-            invoice = await client.create_invoice(
-                asset=currency,
-                amount=amount,
-                description=description,
-                expires_in=3600,
-            )
-        except Exception:
-            logger.exception("CryptoPay: failed to create invoice")
+            invoice = await self._client.create_invoice(asset=currency, amount=amount, description=description, expires_in=3600)
+            return {
+                "invoice_id": invoice.invoice_id,
+                "amount": invoice.amount,
+                "currency": invoice.asset,
+                "pay_url": invoice.bot_invoice_url,
+            }
+        except Exception:  # pragma: no cover
+            logger.exception("Failed to create CryptoBot invoice")
             return None
-        finally:
-            await client.close()
-
-        if not invoice:
-            return None
-
-        return {
-            "invoice_id": int(invoice.invoice_id),
-            "amount": float(invoice.amount),
-            "currency": invoice.asset,
-            "pay_url": invoice.bot_invoice_url,
-        }
 
     async def check_invoice(self, invoice_id: int) -> bool:
-        client = self._new_client()
         try:
-            invoices = await client.get_invoices(invoice_ids=[invoice_id])
-        except Exception:
-            logger.exception("CryptoPay: failed to fetch invoices")
-            return False
-        finally:
-            await client.close()
-
-        if not invoices:
-            return False
-
-        status = getattr(invoices[0], "status", None)
-        return status == "paid"
+            invoices = await self._client.get_invoices(invoice_ids=[invoice_id])
+            if invoices:
+                return invoices[0].status == "paid"
+        except Exception:  # pragma: no cover
+            logger.exception("Failed to check CryptoBot invoice %s", invoice_id)
+        return False
 
     async def get_app_info(self) -> Optional[Dict[str, str]]:
-        client = self._new_client()
         try:
-            app = await client.get_me()
-        except Exception:
-            logger.exception("CryptoPay: failed to load app info")
+            info = await self._client.get_me()
+            return {"name": info.name, "payment_bot": info.payment_processing_bot_username}
+        except Exception:  # pragma: no cover
+            logger.exception("Failed to get CryptoBot app info")
             return None
-        finally:
-            await client.close()
-
-        return {
-            "name": getattr(app, "name", ""),
-            "payment_bot": getattr(app, "payment_processing_bot_username", ""),
-        }
 
 
 __all__ = ["CryptoPaymentService"]
