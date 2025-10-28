@@ -26,11 +26,6 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-> ⚠️ Интеграция с CryptoBot реализована напрямую через REST API, поэтому
-> дополнительных библиотек (например, `aiocryptopay`) в зависимостях нет.
-> Это исключает ошибки установки `pip install -r requirements.txt` на
-> Railway, где ранее требовался отсутствующий пакет `aiocryptopay==6.3.0`.
-
 Создайте файл `.env` и заполните обязательные переменные:
 
 ```env
