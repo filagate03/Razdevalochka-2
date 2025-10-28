@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
-import aiohttp
+from aiocryptopay import AioCryptoPay, Networks
 
 from app.config import get_settings
 
@@ -12,91 +12,39 @@ logger = logging.getLogger(__name__)
 
 
 class CryptoPaymentService:
-    """Minimal async client for the CryptoBot Crypto Pay API."""
-
-    _BASE_URL = "https://pay.crypt.bot/api"
-
     def __init__(self) -> None:
         settings = get_settings()
-        self._token = settings.crypto_bot_token
+        self._client = AioCryptoPay(token=settings.crypto_bot_token, network=Networks.MAIN_NET)
 
-    def _headers(self) -> Dict[str, str]:
-        return {
-            "Content-Type": "application/json",
-            "Crypto-Pay-API-Token": self._token,
-        }
-
-    async def _post(self, path: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Execute a POST request to the Crypto Pay API."""
-        url = f"{self._BASE_URL}{path}"
-        timeout = aiohttp.ClientTimeout(total=15)
+    async def create_invoice(self, amount: float, currency: str = "USDT", description: str = "") -> Optional[Dict[str, str]]:
         try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, json=payload, headers=self._headers()) as response:
-                    data = await response.json(content_type=None)
-        except Exception:  # pragma: no cover - network/serialization failures
-            logger.exception("CryptoPay API request failed: %s", path)
-            return None
-
-        if not data or not data.get("ok"):
-            logger.error("CryptoPay API responded with error on %s: %s", path, data)
-            return None
-
-        result = data.get("result")
-        if not isinstance(result, dict):
-            logger.error("CryptoPay API unexpected payload on %s: %s", path, data)
-            return None
-        return result
-
-    async def create_invoice(
-        self,
-        amount: float,
-        currency: str = "USDT",
-        description: str = "",
-    ) -> Optional[Dict[str, str]]:
-        payload: Dict[str, Any] = {
-            "asset": currency,
-            "amount": amount,
-            "description": description,
-            "expires_in": 3600,
-        }
-        result = await self._post("/createInvoice", payload)
-        if not result:
-            return None
-
-        try:
+            invoice = await self._client.create_invoice(asset=currency, amount=amount, description=description, expires_in=3600)
             return {
-                "invoice_id": str(result["invoice_id"]),
-                "amount": str(result["amount"]),
-                "currency": str(result["asset"]),
-                "pay_url": str(result["bot_invoice_url"]),
+                "invoice_id": invoice.invoice_id,
+                "amount": invoice.amount,
+                "currency": invoice.asset,
+                "pay_url": invoice.bot_invoice_url,
             }
-        except KeyError:  # pragma: no cover - schema mismatch
-            logger.error("Unexpected invoice payload: %s", result)
+        except Exception:  # pragma: no cover
+            logger.exception("Failed to create CryptoBot invoice")
             return None
 
     async def check_invoice(self, invoice_id: int) -> bool:
-        payload = {"invoice_ids": [invoice_id]}
-        result = await self._post("/getInvoices", payload)
-        if not result:
-            return False
-
-        invoices = result.get("items")
-        if isinstance(invoices, list) and invoices:
-            status = invoices[0].get("status")
-            return status == "paid"
-        logger.error("Invoice %s not found in response: %s", invoice_id, result)
+        try:
+            invoices = await self._client.get_invoices(invoice_ids=[invoice_id])
+            if invoices:
+                return invoices[0].status == "paid"
+        except Exception:  # pragma: no cover
+            logger.exception("Failed to check CryptoBot invoice %s", invoice_id)
         return False
 
     async def get_app_info(self) -> Optional[Dict[str, str]]:
-        result = await self._post("/getMe", {})
-        if not result:
+        try:
+            info = await self._client.get_me()
+            return {"name": info.name, "payment_bot": info.payment_processing_bot_username}
+        except Exception:  # pragma: no cover
+            logger.exception("Failed to get CryptoBot app info")
             return None
-
-        return {
-            "name": str(result.get("name", "")),
-            "payment_bot": str(result.get("payment_processing_bot_username", "")),
-        }
 
 
 __all__ = ["CryptoPaymentService"]
