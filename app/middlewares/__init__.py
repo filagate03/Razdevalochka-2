@@ -1,4 +1,5 @@
-from .auth import AdminFilterMiddleware, AntiFloodMiddleware
-from .services import ServicesMiddleware
+from .admin import AdminMiddleware
+from .repositories import RepositoryMiddleware
+from .throttling import ThrottlingMiddleware
 
-__all__ = ["AdminFilterMiddleware", "AntiFloodMiddleware", "ServicesMiddleware"]
+__all__ = ["AdminMiddleware", "ThrottlingMiddleware", "RepositoryMiddleware"]
