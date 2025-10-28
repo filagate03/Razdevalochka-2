@@ -1,3 +1,3 @@
-from . import admin, balance, buy, generation, payments, start
+from . import admin, generate, payment, referral, start
 
-__all__ = ["admin", "balance", "buy", "generation", "payments", "start"]
+__all__ = ["admin", "generate", "payment", "referral", "start"]
